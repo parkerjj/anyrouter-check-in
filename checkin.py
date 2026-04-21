@@ -22,6 +22,29 @@ load_dotenv()
 BALANCE_HASH_FILE = 'balance_hash.txt'
 
 
+import json
+import gzip
+import brotli
+import zstandard as zstd
+
+def parse_response_data(resp):
+    try:
+        return resp.json()
+    except Exception:
+        # 获取原始字节流
+        raw = resp.content
+        encoding = (resp.headers.get("Content-Encoding") or "").lower()
+        # 如果响应头没有 encoding，尝试根据魔数判断
+        if raw.startswith(b"\x28\xb5\x2f\xfd") or "zstd" in encoding:
+            raw = zstd.ZstdDecompressor().decompress(raw)
+        elif raw[:2] == b"\x1f\x8b" or "gzip" in encoding:
+            raw = gzip.decompress(raw)
+        elif "br" in encoding:
+            raw = brotli.decompress(raw)
+        text = raw.decode("utf-8", errors="ignore")
+        return json.loads(text)
+
+
 def load_balance_hash():
 	"""加载余额hash"""
 	try:
@@ -129,26 +152,29 @@ async def get_waf_cookies_with_playwright(account_name: str, login_url: str, req
 				return None
 
 
-def get_user_info(client, headers, user_info_url: str):
-	"""获取用户信息"""
-	try:
-		response = client.get(user_info_url, headers=headers, timeout=30)
 
-		if response.status_code == 200:
-			data = response.json()
-			if data.get('success'):
-				user_data = data.get('data', {})
-				quota = round(user_data.get('quota', 0) / 500000, 2)
-				used_quota = round(user_data.get('used_quota', 0) / 500000, 2)
-				return {
-					'success': True,
-					'quota': quota,
-					'used_quota': used_quota,
-					'display': f':money: Current balance: ${quota}, Used: ${used_quota}',
-				}
-		return {'success': False, 'error': f'Failed to get user info: HTTP {response.status_code}'}
-	except Exception as e:
-		return {'success': False, 'error': f'Failed to get user info: {str(e)[:50]}...'}
+def get_user_info(client, headers, user_info_url: str):
+    try:
+        resp = client.get(user_info_url, headers=headers, timeout=30)
+        if resp.status_code == 200:
+            data = parse_response_data(resp)
+            if data.get("success"):
+                user_data = data.get("data", {})
+                quota = round(user_data.get("quota", 0) / 500000, 2)
+                used_quota = round(user_data.get("used_quota", 0) / 500000, 2)
+                return {
+                    'success': True,
+                    'quota': quota,
+                    'used_quota': used_quota,
+                    'display': f':money: Current balance: ${quota}, Used: ${used_quota}',
+                }
+            return {'success': False, 'error': 'Unexpected API response'}
+        return {'success': False, 'error': f'HTTP {resp.status_code}'}
+    except Exception as e:
+		print("status:", resp.status_code)
+		print("Content-Encoding:", resp.headers.get("Content-Encoding"))
+		print("all bytes:", resp.content)
+        return {'success': False, 'error': f'Failed to get user info: {e}'}
 
 
 async def prepare_cookies(account_name: str, provider_config, user_cookies: dict) -> dict | None:
