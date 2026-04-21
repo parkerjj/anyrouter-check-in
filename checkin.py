@@ -171,9 +171,9 @@ def get_user_info(client, headers, user_info_url: str):
             return {'success': False, 'error': 'Unexpected API response'}
         return {'success': False, 'error': f'HTTP {resp.status_code}'}
     except Exception as e:
-		print("status:", resp.status_code)
-		print("Content-Encoding:", resp.headers.get("Content-Encoding"))
-		print("all bytes:", resp.content)
+        print("status:", resp.status_code)
+        print("Content-Encoding:", resp.headers.get("Content-Encoding"))
+        print("all bytes:", resp.content)
         return {'success': False, 'error': f'Failed to get user info: {e}'}
 
 
